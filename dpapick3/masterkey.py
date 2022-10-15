@@ -26,6 +26,8 @@ import struct
 import dpapick3.crypto as crypto
 import dpapick3.eater as eater
 import dpapick3.credhist as credhist
+import json
+import os
 
 class MasterKey(eater.DataStruct):
     """This class represents a MasterKey block contained in a MasterKeyFile"""
@@ -58,6 +60,9 @@ class MasterKey(eater.DataStruct):
             if k in d:
                 d[k] = crypto.CryptoAlgo(d[k])
         self.__dict__.update(d)
+
+    def toJSON(self):
+        return json.dumps(self, default=lambda o: o.__dict__)
 
     def parse(self, data):
         self.version = data.eat("L")
@@ -366,6 +371,8 @@ class MasterKeyFile(eater.DataStruct):
             s.append("    + %s" % repr(self.domainkey))
         return "\n".join(s)
 
+    def tojson(self):
+        return json.dumps(self, default=lambda o: o.__dict__,sort_keys=True, indent=4)
 
 class MasterKeyPool(object):
     """This class is the pivot for using DPAPIck. It manages all the DPAPI
@@ -421,6 +428,7 @@ class MasterKeyPool(object):
 
         directory is a string representing the directory path to add.
         """
+        import os
         for k in os.listdir(directory):
             if re.match("^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$", k, re.IGNORECASE):
                 try:
@@ -428,6 +436,25 @@ class MasterKeyPool(object):
                         self.addMasterKey(f.read())
                 except:
                     pass
+
+        #import os
+        if os.environ.get("DPAPICKCACHE"):
+            import os.path
+            import jsonpickle
+            if os.path.isfile(os.environ.get("DPAPICKCACHE")):
+                    try:
+                        with open(os.environ.get("DPAPICKCACHE"), 'r') as f:
+                            dump = json.load(f)
+                    except:
+                        dump = []
+                        pass
+
+            for mkf in self.keys:
+                for mkdump in dump:
+                    if mkf.decode('ascii') in mkdump:
+                        tmp1 = jsonpickle.decode(mkdump[mkf.decode('ascii')])
+                        self.keys[mkf][0] = tmp1
+                        #print("in cache")
 
     def pickle(self, filename=None):
         if filename is not None:
@@ -483,6 +510,27 @@ class MasterKeyPool(object):
                                 mk.decryptWithHash(userSID, self.system.machine)
                     if mk.decrypted:
                         n += 1
+                        import os
+                        if os.environ.get("DPAPICKCACHE"):
+                            import jsonpickle
+                            import os.path
+                            if os.path.isfile(os.environ.get("DPAPICKCACHE")):
+                                try:
+                                    with open(os.environ.get("DPAPICKCACHE"), 'r') as f:
+                                        dump = json.load(f)
+                                except:
+                                    dump = []
+                                    pass
+                            else:
+                                dump = []
+                            mkfdump = jsonpickle.encode(mk)
+                            mkfdumps = {mk.guid.decode('ascii'): mkfdump}
+                            if mkfdumps not in dump:
+                                dump.append(mkfdumps)
+                                with open(os.environ.get("DPAPICKCACHE"), 'w') as f:
+                                    json.dump(dump, f)
+                else:
+                    n += 1
         return n
 
     def try_credential(self, userSID, password):
@@ -525,6 +573,28 @@ class MasterKeyPool(object):
                     if mk.decrypted:
                         self.passwords.add(password)
                         n += 1
+                        import os
+                        if os.environ.get("DPAPICKCACHE"):
+                            import jsonpickle
+                            import os.path
+                            if os.path.isfile(os.environ.get("DPAPICKCACHE")):
+                                try:
+                                    with open(os.environ.get("DPAPICKCACHE"), 'r') as f:
+                                       dump = json.load(f)
+                                except:
+                                    dump = []
+                                    pass
+                            else:
+                                dump=[]
+                            mkfdump = jsonpickle.encode(mk)
+                            mkfdumps = {mk.guid.decode('ascii'): mkfdump}
+                            if mkfdumps not in dump:
+                                dump.append(mkfdumps)
+                                with open(os.environ.get("DPAPICKCACHE"), 'w') as f:
+                                    json.dump(dump, f)
+                else:
+                    n += 1
+
         return n
 
     def try_domain(self, privkeyfile):
